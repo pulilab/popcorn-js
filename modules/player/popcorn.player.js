@@ -404,8 +404,10 @@
     videoHTML = '<video id="' +  videoID + '" preload=auto autobuffer>';
     for ( i = 0, srcLength = src.length; i < srcLength; i++ ) {
       videoUrl = src[ i ].split("?")[0];
-      videoType = re.exec(videoUrl)[1];
-      videoHTML += '<source type="video/' + videoType + '" src="' + src[ i ] + '">';
+      if (videoUrl.search('-720_.') == -1 && videoUrl.search('-1080_.') == -1) {
+          videoType = re.exec(videoUrl)[1];
+          videoHTML += '<source type="video/' + videoType + '" src="' + src[ i ] + '">';
+      }
     }
     videoHTML += "</video>";
     node.innerHTML = videoHTML;

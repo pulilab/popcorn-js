@@ -13,8 +13,8 @@
   function isSoundCloudReady() {
     // If the SoundCloud Widget API + JS SDK aren't loaded, do it now.
     if( !scLoaded ) {
-      Popcorn.getScript( "//w.soundcloud.com/player/api.js", function() {
-        Popcorn.getScript( "//connect.soundcloud.com/sdk.js", function() {
+      Popcorn.getScript( "https://w.soundcloud.com/player/api.js", function() {
+        Popcorn.getScript( "https://connect.soundcloud.com/sdk.js", function() {
           scReady = true;
 
           // XXX: SoundCloud won't let us use real URLs with the API,
@@ -47,7 +47,7 @@
       throw "ERROR: HTMLSoundCloudAudioElement requires window.postMessage";
     }
 
-    var self = this,
+    var self = new Popcorn._MediaElementProto(),
       parent = typeof id === "string" ? Popcorn.dom.find( id ) : id,
       elem = document.createElement( "iframe" ),
       impl = {
@@ -61,7 +61,7 @@
         loop: false,
         poster: EMPTY_STRING,
         // SC Volume values are 0-100, we remap to 0-1 in volume getter/setter
-        volume: 100,
+        volume: 1,
         muted: 0,
         currentTime: 0,
         duration: NaN,
@@ -72,6 +72,7 @@
         error: null
       },
       playerReady = false,
+      playerPaused = true,
       player,
       playerReadyCallbacks = [],
       timeUpdateInterval,
@@ -125,10 +126,22 @@
       });
 
       player.bind( SC.Widget.Events.SEEK, function( data ) {
-        onStateChange({
-          type: "seek",
-          // currentTime is in ms vs. s
-          data: data.currentPosition / 1000
+        player.getPosition( function( currentTimeInMS ) {
+          // Convert milliseconds to seconds.
+          var currentTimeInSeconds = currentTimeInMS / 1000;
+          if ( impl.seeking ) {
+            if ( Math.floor( currentTimeInSeconds ) !== Math.floor( impl.currentTime ) ) {
+              // Convert Seconds back to milliseconds.
+              player.seekTo( impl.currentTime * 1000 );
+            } else {
+              onSeeked();
+            }
+            return;
+          }
+          onStateChange({
+            type: "seek",
+            data: currentTimeInSeconds
+          });
         });
       });
 
@@ -150,21 +163,25 @@
     function onPlayerReady( data ) {
 
       // Turn down the volume and kick-off a play to force load
-      player.setVolume( 0 );
       player.bind( SC.Widget.Events.PLAY_PROGRESS, function( data ) {
-
-        // If we're getting the HTML5 audio, loadedProgress will be 0 or 1.
-        // If we're getting Flash, it will be 0 or > 0.  Prefer > 0 to make
-        // both happy.
-        if( data.loadedProgress > 0 ) {
+        // Turn down the volume.
+        // Loading has to be kicked off before volume can be changed.
+        player.setVolume( 0 );
+        // Wait for both flash and HTML5 to play something.
+        if( data.currentPosition > 0 ) {
           player.unbind( SC.Widget.Events.PLAY_PROGRESS );
 
-          player.bind( SC.Widget.Events.PAUSE, function( data ) {
+          player.bind( SC.Widget.Events.PAUSE, function() {
             player.unbind( SC.Widget.Events.PAUSE );
 
             // Play/Pause cycle is done, restore volume and continue loading.
-            player.setVolume( 100 );
-            onLoaded();
+            player.setVolume( 1 );
+            player.bind( SC.Widget.Events.SEEK, function() {
+              player.unbind( SC.Widget.Events.SEEK );
+              onLoaded();
+            });
+            // Re seek back to 0, then we're back to default, loaded, and ready to go.
+            player.seekTo( 0 );
           });
           player.pause();
         }
@@ -239,6 +256,7 @@
     }
 
     self.play = function() {
+      impl.paused = false;
       if( !playerReady ) {
         addPlayerReadyCallback( function() { self.play(); } );
         return;
@@ -258,7 +276,6 @@
       function seek() {
         onSeeking();
         player.seekTo( aTime );
-        onSeeked();
       }
 
       if( !playerReady ) {
@@ -285,18 +302,21 @@
     }
 
     self.pause = function() {
+      impl.paused = true;
       if( !playerReady ) {
         addPlayerReadyCallback( function() { self.pause(); } );
         return;
       }
-
       player.pause();
     };
 
     function onPause() {
       impl.paused = true;
-      clearInterval( timeUpdateInterval );
-      self.dispatchEvent( "pause" );
+      if( !playerPaused ) {
+        playerPaused = true;
+        clearInterval( timeUpdateInterval );
+        self.dispatchEvent( "pause" );
+      }
     }
 
     function onTimeUpdate() {
@@ -317,8 +337,10 @@
       timeUpdateInterval = setInterval( onTimeUpdate,
                                         self._util.TIMEUPDATE_MS );
 
-      if( impl.paused ) {
-        impl.paused = false;
+      impl.paused = false;
+
+      if ( playerPaused ) {
+        playerPaused = false;
 
         // Only 1 play when video.loop=true
         if ( !impl.loop ) {
@@ -415,6 +437,20 @@
       playerReady = false;
 
       SC.get( "/resolve", { url: aSrc }, function( data ) {
+        var err;
+        if ( data.errors ) {
+          err = { name: "MediaError" };
+          // Not sure why this is in an array, and how multiple errors should be handled.
+          // For now, I'll just use the first. We just need something.
+          if ( data.errors[ 0 ] ) {
+            if ( data.errors[ 0 ].error_message === "404 - Not Found" ) {
+              err.message = "Video not found.";
+              err.code = MediaError.MEDIA_ERR_NETWORK;
+            }
+          }
+          impl.error = err;
+          self.dispatchEvent( "error" );
+        }
         elem.id = Popcorn.guid( "soundcloud-" );
         elem.width = impl.width;
         elem.height = impl.height;
@@ -607,17 +643,12 @@
 
       volume: {
         get: function() {
-          // Remap from HTML5's 0-1 to SoundCloud's 0-100 range
-          var volume = getVolume();
-          return volume / 100;
+          return getVolume();
         },
         set: function( aValue ) {
           if( aValue < 0 || aValue > 1 ) {
             throw "Volume value must be between 0.0 and 1.0";
           }
-
-          // Remap from HTML5's 0-1 to SoundCloud's 0-100 range
-          aValue = aValue * 100;
           setVolume( aValue );
         }
       },
@@ -648,24 +679,26 @@
         }
       }
     });
+
+    self._canPlaySrc = Popcorn.HTMLSoundCloudAudioElement._canPlaySrc;
+    self.canPlayType = Popcorn.HTMLSoundCloudAudioElement.canPlayType;
+
+    return self;
   }
 
-  HTMLSoundCloudAudioElement.prototype = new Popcorn._MediaElementProto();
+  Popcorn.HTMLSoundCloudAudioElement = function( id ) {
+    return new HTMLSoundCloudAudioElement( id );
+  };
 
   // Helper for identifying URLs we know how to play.
-  HTMLSoundCloudAudioElement.prototype._canPlaySrc = function( url ) {
+  Popcorn.HTMLSoundCloudAudioElement._canPlaySrc = function( url ) {
     return (/(?:https?:\/\/www\.|https?:\/\/|www\.|\.|^)(soundcloud)/).test( url ) ?
       "probably" : EMPTY_STRING;
   };
 
   // We'll attempt to support a mime type of audio/x-soundcloud
-  HTMLSoundCloudAudioElement.prototype.canPlayType = function( type ) {
+  Popcorn.HTMLSoundCloudAudioElement.canPlayType = function( type ) {
     return type === "audio/x-soundcloud" ? "probably" : EMPTY_STRING;
   };
-
-  Popcorn.HTMLSoundCloudAudioElement = function( id ) {
-    return new HTMLSoundCloudAudioElement( id );
-  };
-  Popcorn.HTMLSoundCloudAudioElement._canPlaySrc = HTMLSoundCloudAudioElement.prototype._canPlaySrc;
 
 }( Popcorn, window, document ));

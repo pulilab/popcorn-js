@@ -28,16 +28,20 @@
     this.duration = options.duration || NaN;
     this.playInterval = null;
     this.paused = true;
+    this.defaultPlaybackRate = 1;
+    this.playbackRate = 1;
     this.ended = options.endedCallback || Popcorn.nop;
   }
 
   function nullPlay( video ) {
-    video.currentTime += ( Date.now() - video.startTime ) / 1000;
+    video.currentTime += ( Date.now() - video.startTime ) / (1000 / video.playbackRate);
     video.startTime = Date.now();
     if( video.currentTime >= video.duration ) {
-      video.currentTime = video.duration;
-      video.pause();
+      video.pause(video.duration);
       video.ended();
+    }
+    if( video.currentTime < 0 ) {
+       video.pause(0);   
     }
   }
 
@@ -70,7 +74,7 @@
 
   function HTMLNullVideoElement( id ) {
 
-    var self = this,
+    var self = new Popcorn._MediaElementProto(),
       parent = typeof id === "string" ? document.querySelector( id ) : id,
       elem = document.createElement( "div" ),
       playerReady = false,
@@ -106,10 +110,11 @@
     self._util.type = "NullVideo";
 
     function addPlayerReadyCallback( callback ) {
-      playerReadyCallbacks.unshift( callback );
+      playerReadyCallbacks.push( callback );
     }
 
-    function onPlayerReady( ) {
+    function onPlayerReady() {
+      var callback;
       playerReady = true;
 
       impl.networkState = self.NETWORK_IDLE;
@@ -124,10 +129,9 @@
       impl.readyState = self.HAVE_ENOUGH_DATA;
       self.dispatchEvent( "canplaythrough" );
 
-      var i = playerReadyCallbacks.length;
-      while( i-- ) {
-        playerReadyCallbacks[ i ]();
-        delete playerReadyCallbacks[ i ];
+      while( playerReadyCallbacks.length ) {
+        callback = playerReadyCallbacks.shift();
+        callback();
       }
 
       // Auto-start if necessary
@@ -197,6 +201,9 @@
     }
 
     function changeCurrentTime( aTime ) {
+      if ( aTime === getCurrentTime() ) {
+        return;
+      }
       if( !playerReady ) {
         addPlayerReadyCallback( function() { changeCurrentTime( aTime ); } );
         return;
@@ -424,6 +431,16 @@
           setMuted( self._util.isAttributeSet( aValue ) );
         }
       },
+      
+      playbackRate: {
+        get: function() {
+          return player.playbackRate;   
+        },
+        set: function( aValue ) {
+          player.playbackRate = aValue;
+          self.dispatchEvent( "ratechange" );
+        }
+      },
 
       error: {
         get: function() {
@@ -431,26 +448,27 @@
         }
       }
     });
+
+    self._canPlaySrc = Popcorn.HTMLNullVideoElement._canPlaySrc;
+    self.canPlayType = Popcorn.HTMLNullVideoElement.canPlayType;
+
+    return self;
   }
 
-  HTMLNullVideoElement.prototype = new Popcorn._MediaElementProto();
-  HTMLNullVideoElement.prototype.constructor = HTMLNullVideoElement;
+  Popcorn.HTMLNullVideoElement = function( id ) {
+    return new HTMLNullVideoElement( id );
+  };
 
   // Helper for identifying URLs we know how to play.
-  HTMLNullVideoElement.prototype._canPlaySrc = function( url ) {
+  Popcorn.HTMLNullVideoElement._canPlaySrc = function( url ) {
     return ( temporalRegex ).test( url ) ?
       "probably" :
       EMPTY_STRING;
   };
 
   // We'll attempt to support a mime type of video/x-nullvideo
-  HTMLNullVideoElement.prototype.canPlayType = function( type ) {
+  Popcorn.HTMLNullVideoElement.canPlayType = function( type ) {
     return type === "video/x-nullvideo" ? "probably" : EMPTY_STRING;
   };
-
-  Popcorn.HTMLNullVideoElement = function( id ) {
-    return new HTMLNullVideoElement( id );
-  };
-  Popcorn.HTMLNullVideoElement._canPlaySrc = HTMLNullVideoElement.prototype._canPlaySrc;
 
 }( Popcorn, document ));

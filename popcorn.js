@@ -77,9 +77,11 @@
     put: function( dictionary ) {
       // For each own property of src, let key be the property key
       // and desc be the property descriptor of the property.
-      Object.getOwnPropertyNames( dictionary ).forEach(function( key ) {
-        this[ key ] = dictionary[ key ];
-      }, this);
+      for ( var key in dictionary ) {
+        if ( dictionary.hasOwnProperty( key ) ) {
+          this[ key ] = dictionary[ key ];
+        }
+      }
     }
   },
 
@@ -248,6 +250,50 @@
           end: videoDurationPlus
         });
 
+        if ( !self.isDestroyed ) {
+          self.data.durationChange = function() {
+            var newDuration = self.media.duration,
+                newDurationPlus = newDuration + 1,
+                byStart = self.data.trackEvents.byStart,
+                byEnd = self.data.trackEvents.byEnd;
+
+            // Remove old padding events
+            byStart.pop();
+            byEnd.pop();
+
+            // Remove any internal tracking of events that have end times greater than duration
+            // otherwise their end events will never be hit.
+            for ( var k = byEnd.length - 1; k > 0; k-- ) {
+              if ( byEnd[ k ].end > newDuration ) {
+                self.removeTrackEvent( byEnd[ k ]._id );
+              }
+            }
+
+            // Remove any internal tracking of events that have end times greater than duration
+            // otherwise their end events will never be hit.
+            for ( var i = 0; i < byStart.length; i++ ) {
+              if ( byStart[ i ].end > newDuration ) {
+                self.removeTrackEvent( byStart[ i ]._id );
+              }
+            }
+
+            // References to byEnd/byStart are reset, so accessing it this way is
+            // forced upon us.
+            self.data.trackEvents.byEnd.push({
+              start: newDurationPlus,
+              end: newDurationPlus
+            });
+
+            self.data.trackEvents.byStart.push({
+              start: newDurationPlus,
+              end: newDurationPlus
+            });
+          };
+
+          // Listen for duration changes and adjust internal tracking of event timings
+          self.media.addEventListener( "durationchange", self.data.durationChange, false );
+        }
+
         if ( self.options.frameAnimation ) {
 
           //  if Popcorn is created with frameAnimation option set to true,
@@ -296,12 +342,9 @@
         }
       };
 
-      Object.defineProperty( this, "error", {
-        get: function() {
-
-          return self.media.error;
-        }
-      });
+      self.media.addEventListener( "error", function() {
+        self.error = self.media.error;
+      }, false );
 
       // http://www.whatwg.org/specs/web-apps/current-work/#dom-media-readystate
       //
@@ -1157,11 +1200,7 @@
     this.endIndex = 0;
     this.previousUpdateTime = -1;
 
-    Object.defineProperty( this, "count", {
-      get: function() {
-        return this.byStart.length;
-      }
-    });
+    this.count = 1;
   }
 
   function isMatch( obj, key, value ) {
@@ -1232,6 +1271,8 @@
 
       this.parent.data.trackEvents.endIndex++;
     }
+
+    this.count++;
 
   };
 
@@ -1339,6 +1380,7 @@
     this.byStart = byStart;
     this.byEnd = byEnd;
     this.animating = animating;
+    this.count--;
 
     historyLen = this.parent.data.history.length;
 
@@ -2519,8 +2561,20 @@
       head.removeChild( script );
     }, false );
 
-    script.src = url;
+    script.addEventListener( "error",  function( e ) {
+      //  Handling remote script loading callbacks
+      success && success( { error: e } );
 
+      //  Executing for JSONP requests
+      if ( !isScript ) {
+        //  Garbage collect the callback
+        delete window[ callback ];
+      }
+      //  Garbage collect the script resource
+      head.removeChild( script );
+    }, false );
+
+    script.src = url;
     head.insertBefore( script, head.firstChild );
 
     return;

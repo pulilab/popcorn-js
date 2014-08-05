@@ -4,18 +4,15 @@
     <title>Popcorn Youtube Player Example</title>
       <script src="popcorn.ie8.js"></script>
       <script src="../popcorn.js"></script>
-      <script src="../modules/player/popcorn.player.js"></script>
-      <script src="../players/youtube/popcorn.youtube.js"></script>
+      <script src="../wrappers/common/popcorn._MediaElementProto.js"></script>
+      <script src="../wrappers/jwplayer/popcorn.HTMLJWPlayerVideoElement.js"></script>
       <script src="../plugins/footnote/popcorn.footnote.js"></script>
       <script src="../plugins/flickr/popcorn.flickr.js"></script>
-      <script src="../plugins/attribution/popcorn.attribution.js"></script>
       <script src="../plugins/webpage/popcorn.webpage.js"></script>
       <script src="../plugins/googlefeed/popcorn.googlefeed.js"></script>
-      <script src="../plugins/image/popcorn.image.js"></script>
       <script src="../plugins/subtitle/popcorn.subtitle.js"></script>
-      <script src="../plugins/twitter/popcorn.twitter.js"></script>
       <script>
-        var attachEvent = function( element, event, callBack ) {
+        var addEventListenerHelper = function( element, event, callBack ) {
 
           if ( element.addEventListener ) {
 
@@ -34,20 +31,22 @@
         }
 
         var done = false;
-        
-        attachEvent( document, "DOMContentLoaded", function( e ) {
+
+        addEventListenerHelper( document, "DOMContentLoaded", function( e ) {
 
           if ( done ) {
-          
+
             return;
           }
 
           done = true;
-        
+
           var paused = true,
+              media = new Popcorn.HTMLJWPlayerVideoElement( "#video" ),
               popcorn;
 
-          popcorn = Popcorn.youtube( "#video", "http://www.youtube.com/watch?v=nfGV32RNkhw&autoplay=0" );
+          media.src = "http://media.w3.org/2010/05/sintel/trailer.mp4?controls=1";
+          popcorn = Popcorn( media );
 
           popcorn = popcorn
             .footnote({
@@ -63,23 +62,6 @@
               numberofimages: "8",
               target: "flickrdiv"
             })
-            .twitter({
-              start: 20, // seconds
-              end: 45, // seconds
-              title: "Oil Spill",
-              src: "#oilspill",
-              target: "twitterdiv"
-            })
-            .attribution({
-              start: 5, // seconds
-              end: 60, // seconds
-              nameofwork: "Internet",
-              nameofworkurl: "http://www.archive.org/details/CC1232_internet",
-              copyrightholder: "The Computer Chronicles",
-              license: "CC-BY-NC-ND",
-              licenseurl: "http://creativecommons.org/licenses/by-nc-nd/2.0/",
-              target: "attribdiv"
-            })
             .subtitle({
               start: 5, // seconds
               end: 15, // seconds
@@ -88,7 +70,7 @@
               language: "en"
             })
             .webpage({
-              id: "webpages-a", 
+              id: "webpages-a",
               start: 0, // seconds
               end: 15, // seconds
               src: "http://webmademovies.org/",
@@ -102,13 +84,6 @@
                 title: "Planet Feed",
                 orientation: "Vertical"
             })*/
-            .image({
-              start: 5, // seconds
-              end: 15, // seconds
-              href: "http://www.drumbeat.org/",
-              src: "https://www.drumbeat.org/media//images/drumbeat-logo-splash.png",
-              target: "imagediv"
-            })
           .listen( "durationchange", function() {
             element( "player-duration" ).innerHTML = popcorn.duration();
           })
@@ -133,7 +108,7 @@
 
           // Single play/pause button
 
-          attachEvent( element( "btn-play-pause" ), "click", function() {
+          addEventListenerHelper( element( "btn-play-pause" ), "click", function() {
 
             if ( paused ) {
               popcorn.play();
@@ -143,18 +118,18 @@
           }, false);
 
           // Seek
-          attachEvent( element( "btn-seek" ), "click", function() {
+          addEventListenerHelper( element( "btn-seek" ), "click", function() {
 
             popcorn.currentTime( 30 );
           }, false);
 
           // Volume
-          attachEvent( element( "btn-volume" ), "click", function() {
+          addEventListenerHelper( element( "btn-volume" ), "click", function() {
             var volume = ( popcorn.volume() === 1 ) ? 0.5 : 1;
             popcorn.volume( volume );
           }, false);
-          
-          attachEvent( element( "btn-mute" ), "click", function() {
+
+          addEventListenerHelper( element( "btn-mute" ), "click", function() {
             popcorn.mute( !popcorn.media.muted );
           }, false );
         }, false );
@@ -163,7 +138,12 @@
   <body>
     <div>
       <div>
-        <div id="video" style="width: 360px; height: 300px;" ></div><br />
+        <!-- Base containing element needs some dimensions and somewhere down the line a parent element
+             is relatively positioned -->
+        <div id="video-container" style="width: 360px; height: 300px; position: relative;">
+          <!-- z-index of video target has to be lower than what's provided for plugins (1000)-->
+          <div id="video" style="width: 360px; height: 300px; z-index: 5;" ></div>
+        </div>
         <button class="simple" id="btn-play-pause">Play</button>
         <button class="seek" id="btn-seek">Seek to 30</button>
         <button class="volume" id="btn-volume">Toggle Volume</button>
@@ -180,21 +160,14 @@
       <div>
         <h3>Description</h3>
         <p>
-          This demo will showcase how a Youtube flash video can be integrated into Popcorn. This  is done by making the flash video masquerade as HTML 5 video.<br />
-          Due to the Flash security model, this demo must be  run from a web server<br />
+          This demo will showcase how an HTML5 video can be integrated into Popcorn using our JWPlayer Wrapper. This is done by wrapping the HTML5 video in a flash object and making the flash object masquerade as HTML 5 video.<br />
+          Due to the Flash security model, this demo must be run from a web server<br />
           From 5 to 40 seconds, the footnote 'The video is "RiP: A Remix Manifesto", by Brett Gaylor' will appear below 'Footnote Area'.
-        <hr >
-          Youtube does support their player to be chromeless (hidden controls), but their controls are left in to provide richer interaction.<br />
-          Custom controls have been developed and tied into their player for this demo.<br />
-          Clicking play/pause or seeking in either the video or via custom controls will cause the other to update.<br />
-          The video can be specified in the HTML source by giving the youtube web site url (http://www.youtube.com/watch?v=VIDEOID) to either Popcorn.youtube or as the div src attribute.<br/>
         </p>
         <h4>Expected Events</h4>
         <ul>
           <li>From 5 to 40 seconds, the footnote 'The video is "RiP: A Remix Manifesto", by Brett Gaylor' will appear below 'Footnote Area'.</li>
           <li>From 20 to 40 seconds, the a flickr stream of 8 images  tagged 'georgia' will appear below 'Flickr Area'.</li>
-          <li>From 20 to 45 seconds, tweets tagged #oilspill will appear below 'Twitter Area'.</li>
-          <li>From 5 to 60 seconds, the Creative Commons license will appear below 'Attributions Area'.</li>
           <li>From 5 to 15 seconds, the Mozilla Drumbeat logo will appear below 'Image Area'.</li>
           <li>From 5 to 15 seconds, the subtitle 'This is overlaid on top of the video. You can hightlight it!' will appear in front of the video.</li>
           <li>From 0 to 20 seconds, blogs from 'http://zenit.senecac.on.ca/~chris.tyler/planet/rss20.xml' will appear below 'Google Feed Area'.</li>
@@ -204,14 +177,8 @@
       <div id="footnotediv" width="50%" height="50%">
         <strong>Footnote Area</strong><br />
       </div>
-      <div id="attribdiv" width="50%" height="50%">
-        <strong>Attributions Area</strong><br />
-      </div>
       <div id="flickrdiv" width="50%" height="50%">
         <strong>Flickr Area</strong><br />
-      </div>
-      <div id="twitterdiv" width="50%" height="50%">
-        <strong>Twitter Area</strong><br />
       </div>
       <div id="imagediv" width="50%" height="50%">
         <strong>Image Area</strong><br />

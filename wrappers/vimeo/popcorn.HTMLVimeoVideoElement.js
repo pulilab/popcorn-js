@@ -4,7 +4,7 @@
 
   CURRENT_TIME_MONITOR_MS = 16,
   EMPTY_STRING = "",
-  VIMEO_HOST = window.location.protocol + "//player.vimeo.com";
+  VIMEO_HOST = "https://player.vimeo.com";
 
   // Utility wrapper around postMessage interface
   function VimeoPlayer( vimeoIFrame ) {
@@ -49,7 +49,7 @@
       throw "ERROR: HTMLVimeoVideoElement requires window.postMessage";
     }
 
-    var self = this,
+    var self = new Popcorn._MediaElementProto(),
       parent = typeof id === "string" ? Popcorn.dom.find( id ) : id,
       elem = document.createElement( "iframe" ),
       impl = {
@@ -76,6 +76,7 @@
       playerReady = false,
       playerUID = Popcorn.guid(),
       player,
+      playerPaused = true,
       playerReadyCallbacks = [],
       timeUpdateInterval,
       currentTimeInterval,
@@ -164,6 +165,7 @@
     }
 
     self.play = function() {
+      impl.paused = false;
       if( !playerReady ) {
         addPlayerReadyCallback( function() { self.play(); } );
         return;
@@ -196,6 +198,7 @@
     }
 
     self.pause = function() {
+      impl.paused = true;
       if( !playerReady ) {
         addPlayerReadyCallback( function() { self.pause(); } );
         return;
@@ -206,8 +209,11 @@
 
     function onPause() {
       impl.paused = true;
-      clearInterval( timeUpdateInterval );
-      self.dispatchEvent( "pause" );
+      if ( !playerPaused ) {
+        playerPaused = true;
+        clearInterval( timeUpdateInterval );
+        self.dispatchEvent( "pause" );
+      }
     }
 
     function onTimeUpdate() {
@@ -232,8 +238,9 @@
       timeUpdateInterval = setInterval( onTimeUpdate,
                                         self._util.TIMEUPDATE_MS );
 
-      if( impl.paused ) {
-        impl.paused = false;
+      impl.paused = false;
+      if( playerPaused ) {
+        playerPaused = false;
 
         // Only 1 play when video.loop=true
         if ( !impl.loop ) {
@@ -359,10 +366,6 @@
         case "seek":
           onCurrentTime( parseFloat( data.data.seconds ) );
           onSeeked();
-          // Deal with Vimeo playing when paused after a seek
-          if( impl.paused ) {
-            self.pause();
-          }
           break;
       }
     }
@@ -598,25 +601,26 @@
         }
       }
     });
+
+    self._canPlaySrc = Popcorn.HTMLVimeoVideoElement._canPlaySrc;
+    self.canPlayType = Popcorn.HTMLVimeoVideoElement.canPlayType;
+
+    return self;
   }
 
-  HTMLVimeoVideoElement.prototype = new Popcorn._MediaElementProto();
-  HTMLVimeoVideoElement.prototype.constructor = HTMLVimeoVideoElement;
+  Popcorn.HTMLVimeoVideoElement = function( id ) {
+    return new HTMLVimeoVideoElement( id );
+  };
 
   // Helper for identifying URLs we know how to play.
-  HTMLVimeoVideoElement.prototype._canPlaySrc = function( url ) {
+  Popcorn.HTMLVimeoVideoElement._canPlaySrc = function( url ) {
     return ( (/player.vimeo.com\/video\/\d+/).test( url ) ||
              (/vimeo.com\/\d+/).test( url ) ) ? "probably" : EMPTY_STRING;
   };
 
   // We'll attempt to support a mime type of video/x-vimeo
-  HTMLVimeoVideoElement.prototype.canPlayType = function( type ) {
+  Popcorn.HTMLVimeoVideoElement.canPlayType = function( type ) {
     return type === "video/x-vimeo" ? "probably" : EMPTY_STRING;
   };
-
-  Popcorn.HTMLVimeoVideoElement = function( id ) {
-    return new HTMLVimeoVideoElement( id );
-  };
-  Popcorn.HTMLVimeoVideoElement._canPlaySrc = HTMLVimeoVideoElement.prototype._canPlaySrc;
 
 }( Popcorn, window, document ));

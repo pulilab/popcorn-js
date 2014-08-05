@@ -349,7 +349,7 @@
         // We leave HTMLVideoElement and HTMLAudioElement wrappers out
         // of the mix, since we'll default to HTML5 video if nothing
         // else works.  Waiting on #1254 before we add YouTube to this.
-        wrappers = "HTMLVimeoVideoElement HTMLSoundCloudAudioElement HTMLNullVideoElement".split(" ");
+        wrappers = "HTMLYouTubeVideoElement HTMLVimeoVideoElement HTMLSoundCloudAudioElement HTMLNullVideoElement".split(" ");
 
     if ( !node ) {
       Popcorn.error( "Specified target `" + target + "` was not found." );
@@ -397,8 +397,32 @@
         videoType,
         videoUrl,
         videoID = Popcorn.guid( "popcorn-video-" ),
-        re = /(?:\.([^.]+))?$/;
+        re = /(?:\.([^.]+))?$/,
+        videoElement,
+        videoHTMLContainer = document.createElement( "div" );
 
+    videoHTMLContainer.style.width = "100%";
+    videoHTMLContainer.style.height = "100%";
+
+    // If we only have one source, do not bother with source elements.
+    // This means we don't have the IE9 hack,
+    // and we can properly listen to error events.
+    // That way an error event can be told to backup to Flash if it fails.
+    if ( src.length === 1 ) {
+      videoElement = document.createElement( "video" );
+      videoElement.id = videoID;
+      node.appendChild( videoElement );
+      setTimeout( function() {
+        // Hack to decode html characters like &amp; to &
+        var decodeDiv = document.createElement( "div" );
+        decodeDiv.innerHTML = src[ 0 ];
+
+        videoElement.src = decodeDiv.firstChild.nodeValue;
+      }, 0 );
+      return Popcorn( '#' + videoID, options );
+    }
+
+    node.appendChild( videoHTMLContainer );
     // IE9 doesn't like dynamic creation of source elements on <video>
     // so we do it in one shot via innerHTML.
     videoHTML = '<video id="' +  videoID + '" preload=auto autobuffer>';
@@ -410,7 +434,7 @@
       }
     }
     videoHTML += "</video>";
-    node.innerHTML = videoHTML;
+    videoHTMLContainer.innerHTML = videoHTML;
 
     if ( options && options.events && options.events.error ) {
       node.addEventListener( "error", options.events.error, false );
